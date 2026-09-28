@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-SHIELD COMMAND CENTER</title>
+    <meta name="description" content="Q-SHIELD COMMAND CENTER: Secure field-to-command status system with real-time tactical awareness, channel monitoring, and post-quantum readiness.">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     TOP BAR
+     ═══════════════════════════════════════════════════════════════════════ -->
+<header class="topbar">
+    <div class="topbar-logo">
+        <div class="shield-icon">Q</div>
+        <div>
+            <h1>Q-SHIELD</h1>
+            <div class="subtitle">COMMAND CENTER</div>
+        </div>
+    </div>
+    <div class="topbar-right">
+        <!-- Demo toggle -->
+        <div id="demo-toggle" class="demo-toggle" onclick="toggleDemo()">
+            <span>DEMO</span>
+            <div class="toggle-track"><div class="toggle-knob"></div></div>
+        </div>
+
+        <!-- Channel badge -->
+        <div id="channel-badge" class="channel-badge primary">
+            <span class="channel-icon">📡</span>
+            <span id="channel-label">PRIMARY</span>
+        </div>
+
+        <!-- Link status -->
+        <div id="link-status" class="link-status stale">
+            <span class="dot"></span>
+            <span class="link-label">STALE</span>
+        </div>
+
+        <!-- UTC clock -->
+        <div id="utc-clock" class="utc-clock mono">--:--:-- UTC</div>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     PIPELINE STRIP
+     ═══════════════════════════════════════════════════════════════════════ -->
+<nav class="pipeline-strip">
+    <div class="pipeline-node">
+        <div class="node-icon">📡</div>
+        <span class="node-label">Sensors</span>
+        <div class="pipeline-tooltip">
+            IMU, GPS, pulse-ox on the Raspberry Pi<br>
+            collect motion, location, and vitals every 2 s.
+        </div>
+    </div>
+    <div class="pipeline-connector"><div class="pulse-dot"></div></div>
+
+    <div class="pipeline-node">
+        <div class="node-icon">📦</div>
+        <span class="node-label">Status Packet</span>
+        <div class="pipeline-tooltip">
+            Readings bundled into a compact JSON packet<br>
+            with sequence number, HMAC signature, and digest.
+        </div>
+    </div>
+    <div class="pipeline-connector"><div class="pulse-dot"></div></div>
+
+    <div class="pipeline-node">
+        <div class="node-icon">🔒</div>
+        <span class="node-label">Secure Layer</span>
+        <span class="badge">HMAC-SHA256</span>
+        <div class="pipeline-tooltip">
+            HMAC-SHA256 verifies every packet's integrity.<br>
+            PQC (ML-KEM + ML-DSA) signatures coming next.
+        </div>
+    </div>
+    <div class="pipeline-connector"><div class="pulse-dot"></div></div>
+
+    <div class="pipeline-node">
+        <div class="node-icon">📻</div>
+        <span class="node-label">Radio Link</span>
+        <div class="pipeline-tooltip">
+            Packets travel over Wi-Fi or LoRa radio<br>
+            from the field unit to the command server.
+        </div>
+    </div>
+    <div class="pipeline-connector"><div class="pulse-dot"></div></div>
+
+    <div class="pipeline-node">
+        <div class="node-icon">🖥️</div>
+        <span class="node-label">Command</span>
+        <div class="pipeline-tooltip">
+            This dashboard: real-time monitoring, event<br>
+            detection, and situational awareness.
+        </div>
+    </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     MAIN CONTENT
+     ═══════════════════════════════════════════════════════════════════════ -->
+<main class="main-content">
+
+    <!-- ROW 1: Unit Card + Map -->
+    <div class="grid-top">
+        <div class="panel unit-card">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">◆</span> UNIT STATUS</span>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <span id="verified-badge" class="verified-badge hidden">
+                        <span class="verified-icon">✓</span> VERIFIED
+                    </span>
+                    <span id="priority-tag" class="priority-tag routine">ROUTINE</span>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="unit-id">UNIT_01</div>
+                <div id="status-badge" class="status-badge active">
+                    <span class="status-dot"></span>
+                    <span class="status-text">ACTIVE</span>
+                </div>
+                <div class="unit-meta">
+                    <div class="unit-meta-item">
+                        <span class="label">Last Update</span>
+                        <span id="meta-age" class="value mono">—</span>
+                    </div>
+                    <div class="unit-meta-item">
+                        <span class="label">Sequence</span>
+                        <span id="meta-seq" class="value mono">#—</span>
+                    </div>
+                    <div class="unit-meta-item" style="grid-column: span 2;">
+                        <span class="label">Packet Digest</span>
+                        <span id="meta-digest" class="value digest-text">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">◆</span> LOCATION <span class="sector-tag" style="font-size:0.65rem;color:var(--accent-amber);border:1px solid rgba(245,158,11,0.3);padding:2px 6px;border-radius:3px;margin-left:6px;font-family:var(--font-mono);letter-spacing:1px;">SECTOR 04 · LAC FORWARD LINE</span></span>
+                <div style="display:flex;gap:8px;">
+                    <span id="map-src" class="map-info-chip">—</span>
+                    <span id="map-fix" class="map-info-chip">—</span>
+                    <span id="map-sats" class="map-info-chip">—</span>
+                </div>
+            </div>
+            <div class="map-container">
+                <div id="map"></div>
+                <div class="map-fallback">
+                    <div class="coords">33.754800°N  78.683400°E</div>
+                    <div class="coords-label">LAST KNOWN POSITION — LAC FORWARD OUTPOST (MAP OFFLINE)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ROW 2: Motion + Vitals -->
+    <div class="grid-mid">
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">◆</span> MOTION</span>
+            </div>
+            <div class="panel-body">
+                <div class="motion-grid">
+                    <div class="motion-stat">
+                        <div id="motion-state" class="stat-value still">STILL</div>
+                        <div class="stat-label">State</div>
+                    </div>
+                    <div class="motion-stat">
+                        <div id="motion-accel" class="stat-value mono">0.00g</div>
+                        <div class="stat-label">Avg Accel</div>
+                    </div>
+                    <div class="motion-stat">
+                        <div id="motion-peak" class="stat-value mono">0.00g</div>
+                        <div class="stat-label">Peak G</div>
+                    </div>
+                </div>
+                <div class="sparkline-container">
+                    <canvas id="accel-sparkline"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">◆</span> VITALS</span>
+            </div>
+            <div class="panel-body">
+                <div class="vitals-header">
+                    <div id="bpm-value" class="bpm-display">—</div>
+                    <div class="bpm-unit">BPM</div>
+                </div>
+                <div class="bpm-chart-container">
+                    <canvas id="bpm-chart"></canvas>
+                </div>
+                <div class="finger-status">
+                    <span id="finger-dot" class="finger-dot off"></span>
+                    <span id="finger-text">NO FINGER</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ROW 3: Packet Feed + Security -->
+    <div class="grid-bottom">
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">◆</span> PACKET FEED</span>
+            </div>
+            <div class="packet-table-wrap">
+                <table class="packet-table">
+                    <thead>
+                        <tr>
+                            <th>SEQ</th>
+                            <th>TIME</th>
+                            <th>STATUS</th>
+                            <th>PRIORITY</th>
+                            <th>DIGEST</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packet-tbody">
+                        <tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:24px;">Waiting for packets…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Security Panel -->
+        <div class="panel security-panel">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">◆</span> SECURITY</span>
+            </div>
+            <div class="panel-body">
+                <!-- Channel Monitor -->
+                <div class="sec-monitor-block">
+                    <div class="sec-monitor-label">CHANNEL MONITOR</div>
+                    <div id="monitor-state" class="monitor-state calibrating">
+                        <span class="monitor-dot"></span>
+                        <span class="monitor-text">CALIBRATING</span>
+                    </div>
+                    <div id="calibration-bar" class="calibration-bar">
+                        <div class="cal-track">
+                            <div id="cal-fill" class="cal-fill" style="width:0%"></div>
+                        </div>
+                        <span id="cal-label" class="cal-label mono">0 / 25</span>
+                    </div>
+                </div>
+
+                <div class="security-list">
+                    <div class="security-item">
+                        <span class="sec-label">Key Exchange</span>
+                        <span class="sec-value pending" style="font-size:0.6rem;text-align:right;">ML-KEM handshake: planned<br>— using pre-shared demo key</span>
+                    </div>
+                    <div class="security-item">
+                        <span class="sec-label">Invalid Signatures</span>
+                        <div style="display:flex;align-items:center;">
+                            <span id="stat-invalid-sigs" class="sec-value sec-counter ok">0</span>
+                            <span class="sec-tooltip-trigger">?
+                                <div class="sec-tooltip">HMAC-SHA256 rejects packets whose signature doesn't match. Indicates tampering or forgery.</div>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="security-item">
+                        <span class="sec-label">Replay Attempts</span>
+                        <div style="display:flex;align-items:center;">
+                            <span id="stat-replays" class="sec-value sec-counter ok">0</span>
+                            <span class="sec-tooltip-trigger">?
+                                <div class="sec-tooltip">Sequence numbers detect and reject re-sent packets. An attacker capturing and replaying traffic.</div>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="security-item">
+                        <span class="sec-label">Sequence Gaps</span>
+                        <div style="display:flex;align-items:center;">
+                            <span id="stat-seq-gaps" class="sec-value sec-counter none">0</span>
+                            <span class="sec-tooltip-trigger">?
+                                <div class="sec-tooltip">Gaps in packet sequence numbers indicate dropped packets in transit — possible channel degradation.</div>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="security-item">
+                        <span class="sec-label">Flood Events</span>
+                        <div style="display:flex;align-items:center;">
+                            <span id="stat-floods" class="sec-value sec-counter ok">0</span>
+                            <span class="sec-tooltip-trigger">?
+                                <div class="sec-tooltip">Burst of &gt;10 packets in 2 seconds. Consistent with denial-of-service attack on the receiver.</div>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="security-item">
+                        <span class="sec-label">Channel Drops</span>
+                        <div style="display:flex;align-items:center;">
+                            <span id="stat-channel-drops" class="sec-value sec-counter none">0</span>
+                            <span class="sec-tooltip-trigger">?
+                                <div class="sec-tooltip">Packets lost due to channel impairment (jamming simulation). Never reach the validation pipeline.</div>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="security-item">
+                        <span class="sec-label">Backup Channel (LoRa)</span>
+                        <div style="display:flex;align-items:center;">
+                            <span id="stat-lora" class="sec-value ok">READY</span>
+                            <span class="sec-tooltip-trigger">?
+                                <div class="sec-tooltip">If PRIMARY is ATTACKED for &gt;4 s, auto-failover to LoRa: 400 ms latency, ROUTINE downsampled 1-in-3.</div>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ROW 4: Attack Console -->
+    <div class="grid-attack">
+        <div class="panel attack-panel">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">⚠</span> ATTACK CONSOLE</span>
+                <span class="attack-disclaimer">simulated — for demonstration only</span>
+            </div>
+            <div class="panel-body attack-body">
+                <div class="attack-group">
+                    <div class="attack-group-label">PROTOCOL ATTACKS</div>
+                    <div class="attack-buttons">
+                        <button class="attack-btn replay" onclick="fireAttack('replay')">
+                            <span class="btn-icon">🔁</span>
+                            <span class="btn-label">Replay</span>
+                            <span class="btn-desc">Resend accepted packet</span>
+                        </button>
+                        <button class="attack-btn tamper" onclick="fireAttack('tamper')">
+                            <span class="btn-icon">✏️</span>
+                            <span class="btn-label">Tamper</span>
+                            <span class="btn-desc">Modify data, stale sig</span>
+                        </button>
+                        <button class="attack-btn flood" onclick="fireAttack('flood')">
+                            <span class="btn-icon">🌊</span>
+                            <span class="btn-label">Flood</span>
+                            <span class="btn-desc">20-packet burst attack</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="attack-divider"></div>
+                <div class="attack-group">
+                    <div class="attack-group-label">CHANNEL CONTROLS</div>
+                    <div class="attack-buttons">
+                        <button id="jam-start-btn" class="attack-btn jam-start" onclick="toggleJamming(true)">
+                            <span class="btn-icon">⚡</span>
+                            <span class="btn-label">Simulate Jamming</span>
+                            <span class="btn-desc">50% drop + 0.5–2 s delay</span>
+                        </button>
+                        <button id="jam-stop-btn" class="attack-btn jam-stop" onclick="toggleJamming(false)" disabled>
+                            <span class="btn-icon">✕</span>
+                            <span class="btn-label">Clear Jamming</span>
+                            <span class="btn-desc">Remove impairment</span>
+                        </button>
+                    </div>
+                    <div id="jam-status" class="jam-status hidden">
+                        <span class="jam-dot"></span>
+                        <span>Simulated channel impairment ACTIVE</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ROW 5: Event Log -->
+    <div class="grid-logs">
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title"><span class="title-icon">◆</span> EVENT LOG</span>
+            </div>
+            <div class="panel-body event-log-wrap">
+                <ul id="event-log-list" class="event-log-list">
+                    <li class="level-INFO">
+                        <span class="event-time">—</span>
+                        <span class="event-msg">System initialized. Waiting for packets…</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     HOW Q-SHIELD WORKS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<section class="how-section">
+    <h2>HOW Q-SHIELD WORKS</h2>
+    <div class="how-grid">
+        <div class="how-card">
+            <div class="how-step">THE PROBLEM</div>
+            <h3>Field operators need to be seen</h3>
+            <p>In remote or high-risk environments, command must know each operator's status — location, movement, and health — in real time, even when connectivity is poor and adversaries may be listening.</p>
+        </div>
+        <div class="how-card">
+            <div class="how-step">STEP 1 — OBSERVE</div>
+            <h3>Sensors capture everything</h3>
+            <p>A wrist-mounted Raspberry Pi reads GPS coordinates, an IMU accelerometer for motion and impacts, and a pulse-oximeter for heart rate — forming a compact status snapshot every two seconds.</p>
+        </div>
+        <div class="how-card">
+            <div class="how-step">STEP 2 — DETECT</div>
+            <h3>Smart status classification</h3>
+            <p>On-device logic classifies each reading: ACTIVE (normal), DISTRESS (elevated stress), or INJURED_SUSPECTED (sudden impact with abnormal vitals). Priority escalates automatically.</p>
+        </div>
+        <div class="how-card">
+            <div class="how-step">STEP 3 — EXPLAIN</div>
+            <h3>Human-readable events</h3>
+            <p>Every status change generates a plain-English event log entry explaining <em>what</em> happened and <em>why</em> the system flagged it — so operators trust the system's decisions.</p>
+        </div>
+        <div class="how-card">
+            <div class="how-step">STEP 4 — RESPOND</div>
+            <h3>Command acts with confidence</h3>
+            <p>This dashboard shows all unit data at a glance — status, location trail, vitals trend, and event history — enabling faster, better-informed decisions in critical moments.</p>
+        </div>
+    </div>
+    <div class="pqc-callout">
+        <h3>🔐 Why Post-Quantum Cryptography?</h3>
+        <p>Adversaries are already capturing encrypted military and emergency communications today with the intent to decrypt them once quantum computers become powerful enough — a strategy called <strong>"harvest now, decrypt later."</strong> Q-SHIELD integrates NIST-standardized post-quantum algorithms (ML-KEM for encryption, ML-DSA for signatures) so that status packets are protected against both current and future threats. Even data intercepted today will remain confidential decades from now.</p>
+    </div>
+</section>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
