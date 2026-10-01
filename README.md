@@ -25,8 +25,33 @@ Field operatives transmit mission-critical status — location, movement, physic
 ### Demo & media
 - **Live dashboard:** https://async-2cuj.onrender.com/
 - **Hardware simulation (Wokwi):** https://wokwi.com/projects/475881167495110657
-- **Demo video:** https://drive.google.com/file/d/1YaRn1F-XxA3o67vE3By7Ewt47fsZuu2M/view?usp=sharing
+- **Demo video:** https://youtu.be/JH6prkVOjwI
 - **Screenshots:** _add `/docs/screenshots/` and link them here before review_
+
+### Project structure
+```
+Async/
+├── app.py                     # Flask command-center backend
+├── templates/, static/        # Command-center dashboard UI
+├── models/                    # Trained ML artifacts (see §2 for what each does)
+│   ├── qshield_status_classifier.pkl      # field-side NORMAL/STRAIN/CRITICAL classifier
+│   ├── channel_randomforest.pkl           # command-side channel-attack classifier
+│   └── channel_isolationforest.pkl        # command-side channel-attack anomaly detector
+├── data/
+│   └── qshield_3class_dataset.csv         # training data behind qshield_status_classifier.pkl
+├── field/                     # Raspberry Pi field-gateway code
+│   ├── send_to_command.py                 # reads sensors, runs classifier, posts to command center
+│   ├── attacker.py                        # replay/tamper/flood demo attack script
+│   └── requirements-field.txt
+├── training/                  # Reproducible model-training scripts
+│   ├── build_3label.py                    # builds qshield_3class_dataset.csv from the HIFD dataset
+│   ├── train_3class.py                    # trains qshield_status_classifier.pkl
+│   ├── gen_synth.py, build_features.py, train_channel_models.py   # channel-anomaly dataset + training
+├── docs/
+│   └── Q-SHIELD_Documentation.md
+└── .env.example
+```
+**Note:** these files are present for review completeness; `app.py` does not yet load or call the models in `models/` at runtime — see [Known Limitations](#troubleshooting--known-limitations).
 
 ---
 
